@@ -1,23 +1,42 @@
 
 import { OperatorFunction, Observable } from 'rxjs'
 
-export type ArrayBufferViewFactory<TView> = (arrayBuffer: ArrayBuffer, byteOffset: number, byteLength: number) => TView;
+export const enum MisalignmentBehavior {
+  TRUNCATE = 'truncate',
+  PAD_ZERO = 'padZero',
+  ERROR = 'error',
+  RETAIN = 'retain',
+}
 
-export function alignBytes<T extends {buffer:ArrayBuffer, byteOffset:number, byteLength:number}>(createView: ArrayBufferViewFactory<T>, alignByteLength: number): OperatorFunction<T, T> {
+export type ArrayBufferViewFactory<TView extends ArrayBufferView> = (
+  arrayBuffer: ArrayBuffer,
+  byteOffset: number,
+  byteLength: number,
+) => TView;
+
+export function alignBytes<T extends ArrayBufferView>(
+  createView: ArrayBufferViewFactory<T>,
+  alignByteLength: number,
+  onMisalignment = MisalignmentBehavior.PAD_ZERO,
+): OperatorFunction<T, T> {
   if (alignByteLength < 2) return input => input;
   return input => new Observable(subscriber => {
     let prefix: Uint8Array | null = null;
     let prefixOffset = 0;
     return input.subscribe(
       chunk => {
-        if (prefixOffset !== 0) {
-          const copy = new Uint8Array(chunk.buffer, chunk.byteOffset, Math.min(alignByteLength - prefixOffset, chunk.byteLength));
-          prefix!.set(copy, prefixOffset);
+        if (prefix) {
+          const copy = new Uint8Array(
+            chunk.buffer,
+            chunk.byteOffset,
+            Math.min(alignByteLength - prefixOffset, chunk.byteLength)
+          );
+          prefix.set(copy, prefixOffset);
           prefixOffset += copy.length;
           if (prefixOffset < alignByteLength) {
             return;
           }
-          subscriber.next(createView(prefix!.buffer, prefix!.byteOffset, prefix!.byteLength));
+          subscriber.next(createView(prefix.buffer, prefix.byteOffset, prefix.byteLength));
           prefix = null;
           chunk = createView(chunk.buffer, chunk.byteOffset + copy.length, chunk.byteLength - copy.length);
         }
@@ -38,9 +57,23 @@ export function alignBytes<T extends {buffer:ArrayBuffer, byteOffset:number, byt
       },
       e => subscriber.error(e),
       () => {
-        if (prefix) {
-          subscriber.next(createView(prefix.buffer, prefix.byteOffset, prefix.byteLength));
-          prefix = null;
+        if (prefix) switch (onMisalignment) {
+          case MisalignmentBehavior.ERROR: {
+            subscriber.error(new Error('non-aligned byte suffix'));
+            return;
+          }
+          case MisalignmentBehavior.PAD_ZERO: {
+            subscriber.next(createView(prefix.buffer, prefix.byteOffset, prefix.byteLength));
+            break;
+          }
+          case MisalignmentBehavior.RETAIN: {
+            subscriber.next(createView(prefix.buffer, prefix.byteOffset, prefixOffset));
+            break;
+          }
+          case MisalignmentBehavior.TRUNCATE: {
+            // do nothing
+            break;
+          }
         }
         subscriber.complete();
       }
