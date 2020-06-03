@@ -1,6 +1,6 @@
 
 import { TestHarness } from 'zora';
-import { alignBytes, ArrayBufferViewFactory, MisalignmentBehavior } from '../lib/index';
+import { alignBytes, ArrayBufferViewFactory, MisalignmentBehavior, MisalignmentError } from '../lib/index';
 import { of } from 'rxjs';
 import { toArray } from 'rxjs/operators';
 
@@ -40,7 +40,7 @@ export default (t: TestHarness) => {
     });
 
     t.test('error mode', async t => {
-      let error: Error | null = null;
+      let error: any;
       try {
         await of(new Uint8Array([1, 2, 3]))
           .pipe(
@@ -52,7 +52,7 @@ export default (t: TestHarness) => {
       catch (e) {
         error = e;
       }
-      t.ok(error !== null);
+      t.ok(error instanceof MisalignmentError);
     });
 
     t.test('retain mode', async t => {

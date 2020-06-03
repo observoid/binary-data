@@ -8,6 +8,9 @@ export const enum MisalignmentBehavior {
   RETAIN = 'retain',
 }
 
+export class MisalignmentError extends Error {
+}
+
 export type ArrayBufferViewFactory<TView extends ArrayBufferView> = (
   arrayBuffer: ArrayBuffer,
   byteOffset: number,
@@ -59,7 +62,7 @@ export function alignBytes<T extends ArrayBufferView>(
       () => {
         if (prefix) switch (onMisalignment) {
           case MisalignmentBehavior.ERROR: {
-            subscriber.error(new Error('non-aligned byte suffix'));
+            subscriber.error(new MisalignmentError('non-aligned byte suffix'));
             return;
           }
           case MisalignmentBehavior.PAD_ZERO: {
